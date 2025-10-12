@@ -11,7 +11,7 @@ from urllib.parse import urljoin
 BOT_TOKEN = "8483644919:AAHPam6XshOdY7umlhtunnLRGdgPTETvhJ4"
 CHAT_ID   = "6145988808"
 CHECK_URL = "https://psa.wf/"
-SLEEP_SEC = 1      # check every 1 second
+SLEEP_SEC = 3      # check every 1 second
 MAX_SCAN = 200
 # ==============
 
