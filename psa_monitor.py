@@ -21,60 +21,53 @@ scraper.headers.update({
 })
 
 def send_telegram(msg):
+    """Send Telegram alert message."""
     try:
         requests.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
             data={"chat_id": CHAT_ID, "text": msg}
         )
-    except Exception as e:
-        print("Telegram send error:", e)
-
-def looks_like_post(text):
-    """Check if link text looks like a release title"""
-    if not text:
-        return False
-    t = text.lower()
-    if any(x in t for x in ["category", "pack", "archive", "torrent", "magnet"]):
-        return False
-    if re.search(r"s\d{1,2}e\d{1,2}", t):  # episode pattern
-        return True
-    if re.search(r"(720p|1080p|2160p|web|bluray|hdr|x265|10bit)", t):
-        return True
-    return False
+    except Exception:
+        pass  # don't crash on temporary network failures
 
 def extract_posts(html):
-    """Extract potential posts from entire homepage."""
+    """Extract post title, update info, and direct link from PSA homepage."""
     soup = BeautifulSoup(html, "html.parser")
-    anchors = soup.find_all("a", href=True)
-    print(f"Found {len(anchors)} <a> tags")
-
     posts = []
-    seen_titles = set()
 
-    for a in anchors[:MAX_SCAN]:
-        text = a.get_text(" ", strip=True)
-        if not looks_like_post(text):
+    for block in soup.find_all("h2"):
+        a = block.find("a", href=True)
+        if not a:
             continue
-        href = a["href"]
-        url = urljoin(CHECK_URL, href)
-        if len(text) < 4 or text in seen_titles:
-            continue
-        seen_titles.add(text)
-        posts.append((text, url))
+        title = a.get_text(strip=True)
+        href = urljoin(CHECK_URL, a["href"])
 
-    print(f"Filtered posts: {len(posts)}")
-    for t, u in posts[:5]:
-        print(f"  -> {t} ({u})")
+        # find the next sibling containing update text
+        update = ""
+        nxt = block.find_next_sibling()
+        if nxt:
+            m = re.search(r"UPDATE\s*[-–>]+\s*(.+)", nxt.get_text(" ", strip=True), re.I)
+            if m:
+                update = m.group(1).strip()
+
+        if update:
+            full_title = f"{title} — {update}"
+        else:
+            full_title = title
+
+        if re.search(r"(S\d{1,2}E\d{1,2}|720p|1080p|2160p|WEB|BluRay|10bit|Reuploaded|WEBRip)", full_title, re.I):
+            posts.append((full_title, href))
+
     return posts
 
 def format_message(title, url):
+    """Telegram message format."""
     return f"📄 {title}\n🔗 Open URL - {url}"
 
 def main():
     seen = {}
     try:
         html = scraper.get(CHECK_URL, timeout=20).text
-        print("Fetched page length:", len(html))
         posts = extract_posts(html)
         for title, url in posts:
             seen[url] = title
@@ -87,15 +80,17 @@ def main():
         try:
             html = scraper.get(CHECK_URL, timeout=20).text
             posts = extract_posts(html)
+
             for title, url in reversed(posts):
                 if url not in seen:
                     seen[url] = title
-                    send_telegram(format_message(title, CHECK_URL))
-                    print(f"🆕 New post detected: {title}")
+                    send_telegram(format_message(title, url))
+                    print(f"🆕 {title}")
                 elif title != seen[url]:
                     seen[url] = title
-                    send_telegram(format_message(title, CHECK_URL))
-                    print(f"♻️ Updated post detected: {title}")
+                    send_telegram(format_message(title, url))
+                    print(f"♻️ Updated {title}")
+
         except Exception as e:
             print("Error:", e)
         time.sleep(SLEEP_SEC)
