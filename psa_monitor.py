@@ -11,11 +11,11 @@ from urllib.parse import urljoin
 BOT_TOKEN = "8483644919:AAHPam6XshOdY7umlhtunnLRGdgPTETvhJ4"
 CHAT_ID   = "6145988808"
 CHECK_URL = "https://psa.wf/"
-SLEEP_SEC = 1      # change to 1 if you want 1-second checks (more load)
+SLEEP_SEC = 1      # check every 1 second
 MAX_SCAN = 200
 # ==============
 
-scraper = cloudscraper.create_scraper(timeout=20)
+scraper = cloudscraper.create_scraper()
 
 # Positive keywords for actual releases
 POSITIVE = [
@@ -24,14 +24,14 @@ POSITIVE = [
     "x264","x265","HEVC","10bit","S01","S02","E01","Episode","Season"
 ]
 
-# Negative words (only for user comment noise)
+# Negative words (user comments)
 NEGATIVE = [
     "seed", "seeding", "working download", "use the working",
     "i already", "i didn't try", "download link",
     "magnet", "torrent"
 ]
 
-quality_re = re.compile(r'\b(19|20)\d{2}\b')  # match a year
+quality_re = re.compile(r'\b(19|20)\d{2}\b')
 
 def send_telegram(msg):
     try:
@@ -40,18 +40,16 @@ def send_telegram(msg):
             data={"chat_id": CHAT_ID, "text": msg}
         )
     except Exception as e:
+        # Log but don't crash the monitor if Telegram fails
         print("Telegram send error:", e)
 
 def looks_like_post(text):
     if not text:
         return False
     t = text.lower()
-    # skip obvious comment noise
     for n in NEGATIVE:
         if n in t:
             return False
-    # allow "reuploaded" (admins) — do NOT exclude it
-    # require any quality word or year
     if any(p.lower() in t for p in POSITIVE):
         return True
     if quality_re.search(t):
@@ -59,7 +57,6 @@ def looks_like_post(text):
     return False
 
 def anchor_near_image(a_tag):
-    # check if anchor itself contains img or nearby contains an img
     if a_tag.find("img"):
         return True
     parent = a_tag.parent
@@ -86,11 +83,9 @@ def extract_posts(html):
         text = a.get_text(" ", strip=True)
         href = a["href"]
         url = urljoin(CHECK_URL, href)
-        # Only posts with release-like text or near an image (homepage tiles)
         if looks_like_post(text) or anchor_near_image(a):
             if len(text) > 6:
                 results.append((text, url))
-    # dedupe by url preserving order
     seen_local = set()
     out = []
     for t,u in results:
@@ -110,29 +105,48 @@ def format_message(title, url):
     )
     return msg
 
+def format_startup_message(initial_count):
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    msg = (
+        f"✅ PSA Monitor started\n"
+        f"🔎 Monitoring: {CHECK_URL}\n"
+        f"📦 Known items: {initial_count}\n"
+        f"🕒 Started: {ts}"
+    )
+    return msg
+
 def main():
     seen = set()
     # initial load: mark existing homepage items as seen
     try:
-        html = scraper.get(CHECK_URL).text
+        html = scraper.get(CHECK_URL, timeout=20).text
         for _, u in extract_posts(html):
             seen.add(u)
-        print(f"Initialized with {len(seen)} existing items.")
+        init_count = len(seen)
+        print(f"Initialized with {init_count} existing items.")
     except Exception as e:
+        init_count = 0
         print("Initial load failed:", e)
+
+    # Send startup message once
+    try:
+        startup_msg = format_startup_message(init_count)
+        send_telegram(startup_msg)
+        print("Startup message sent.")
+    except Exception as e:
+        print("Startup message failed:", e)
 
     while True:
         try:
-            r = scraper.get(CHECK_URL)
+            r = scraper.get(CHECK_URL, timeout=20)
             r.raise_for_status()
             html = r.text
             posts = extract_posts(html)
-            # send oldest-first among newly discovered
             for title, url in reversed(posts):
                 if url not in seen:
                     seen.add(url)
                     msg = format_message(title, url)
-                    print("New ->", title, url)
+                    print("New ->", title)
                     send_telegram(msg)
         except Exception as e:
             print("Error during check:", e)
