@@ -48,61 +48,48 @@ def looks_like_post(text, url):
 def extract_posts(html):
     soup = BeautifulSoup(html, "html.parser")
     posts = []
+    all_links = soup.find_all("a", href=True)
+    print(f"Found {len(all_links)} total <a> tags")
 
-    for post in soup.find_all(["article", "div"], class_=re.compile("post")):
-        title_tag = post.find("a", href=True)
-        if not title_tag:
-            continue
-
-        title_text = title_tag.get_text(" ", strip=True)
-        href = title_tag["href"]
+    for a in all_links[:MAX_SCAN]:
+        href = a["href"]
         url = urljoin(CHECK_URL, href)
-        if not looks_like_post(title_text, url):
-            continue
+        text = a.get_text(" ", strip=True)
+        if looks_like_post(text, url):
+            posts.append((text.strip(), url))
 
-        # Get "UPDATE -> ..." line if available
-        update_tag = post.find(string=re.compile("UPDATE", re.I))
-        update_text = ""
-        if update_tag:
-            update_text = re.sub(r"UPDATE\s*->\s*", "", update_tag.strip(), flags=re.I)
-
-        posts.append((title_text.strip(), update_text.strip(), url))
-
+    print(f"Filtered posts: {len(posts)}")
+    for t, u in posts[:5]:
+        print(f"  -> {t} ({u})")
     return posts
-
-def format_message(title, update_text, url):
-    if update_text:
-        return f"📄 {title} — {update_text}\n🔗 Open URL - {url}"
-    else:
-        return f"📄 {title}\n🔗 Open URL - {url}"
 
 def main():
     seen = {}
     try:
         html = scraper.get(CHECK_URL, timeout=20).text
-        for title, update_text, url in extract_posts(html):
-            seen[url] = update_text
-        send_telegram(f"✅ PSA Monitor started\nMonitoring: {CHECK_URL}")
+        print("Fetched page length:", len(html))
+        if len(html) < 5000:
+            print("⚠️ Cloudflare challenge detected or blank page!")
+        posts = extract_posts(html)
+        for title, url in posts:
+            seen[url] = title
         print(f"Initialized with {len(seen)} items.")
+        send_telegram(f"✅ PSA Monitor (debug mode) started\nMonitoring: {CHECK_URL}")
     except Exception as e:
         print("Initial load failed:", e)
 
     while True:
         try:
             html = scraper.get(CHECK_URL, timeout=20).text
-            current = extract_posts(html)
-
-            for title, update_text, url in reversed(current):
-                # New post
+            if len(html) < 5000:
+                print("⚠️ Cloudflare page (too short), retrying...")
+                time.sleep(10)
+                continue
+            posts = extract_posts(html)
+            for title, url in reversed(posts):
                 if url not in seen:
-                    seen[url] = update_text
-                    send_telegram(format_message(title, update_text, CHECK_URL))
-
-                # Updated post (update text changed)
-                elif update_text != seen[url]:
-                    seen[url] = update_text
-                    send_telegram(format_message(title, update_text, CHECK_URL))
-
+                    seen[url] = title
+                    print(f"🆕 New post detected: {title}")
         except Exception as e:
             print("Error:", e)
         time.sleep(SLEEP_SEC)
