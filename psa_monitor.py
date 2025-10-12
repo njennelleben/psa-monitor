@@ -15,17 +15,6 @@ MAX_SCAN = 200
 
 scraper = cloudscraper.create_scraper()
 
-POSITIVE = [
-    "720p", "1080p", "2160p", "4k", "WEB", "WEB-DL", "WEBRIP",
-    "BluRay", "HDR", "DVDRip", "BDRip",
-    "x264", "x265", "HEVC", "10bit", "S01", "S02", "E01", "Episode", "Season"
-]
-NEGATIVE = [
-    "seed", "seeding", "working download", "magnet", "torrent",
-    "category", "tv pack"
-]
-EXCLUDE_URL_PARTS = ["category", "tag", "/tv-pack", "/movies"]
-
 def send_telegram(msg):
     try:
         requests.post(
@@ -35,15 +24,19 @@ def send_telegram(msg):
     except Exception as e:
         print("Telegram send error:", e)
 
+# --- relaxed post detection ---
 def looks_like_post(text, url):
     if not text:
         return False
-    if any(x in url.lower() for x in EXCLUDE_URL_PARTS):
+    # ignore obvious category or tag URLs
+    if any(x in url.lower() for x in ["category", "tag"]):
         return False
-    t = text.lower()
-    if any(n in t for n in NEGATIVE):
-        return False
-    return any(p.lower() in t for p in POSITIVE)
+    # accept if looks like an episode or has quality/resolution keywords
+    if re.search(r"(S\d{1,2}E\d{1,2})", text, re.I):
+        return True
+    if re.search(r"(720p|1080p|2160p|WEB|BluRay|HDR|10bit|x265|x264)", text, re.I):
+        return True
+    return False
 
 def extract_posts(html):
     soup = BeautifulSoup(html, "html.parser")
@@ -63,6 +56,9 @@ def extract_posts(html):
         print(f"  -> {t} ({u})")
     return posts
 
+def format_message(title, url):
+    return f"📄 {title}\n🔗 Open URL - {url}"
+
 def main():
     seen = {}
     try:
@@ -73,8 +69,8 @@ def main():
         posts = extract_posts(html)
         for title, url in posts:
             seen[url] = title
-        print(f"Initialized with {len(seen)} items.")
         send_telegram(f"✅ PSA Monitor (debug mode) started\nMonitoring: {CHECK_URL}")
+        print(f"Initialized with {len(seen)} items.")
     except Exception as e:
         print("Initial load failed:", e)
 
@@ -86,10 +82,18 @@ def main():
                 time.sleep(10)
                 continue
             posts = extract_posts(html)
+
             for title, url in reversed(posts):
                 if url not in seen:
                     seen[url] = title
+                    msg = format_message(title, CHECK_URL)
+                    send_telegram(msg)
                     print(f"🆕 New post detected: {title}")
+                elif title != seen[url]:
+                    seen[url] = title
+                    msg = format_message(title, CHECK_URL)
+                    send_telegram(msg)
+                    print(f"♻️ Updated post detected: {title}")
         except Exception as e:
             print("Error:", e)
         time.sleep(SLEEP_SEC)
