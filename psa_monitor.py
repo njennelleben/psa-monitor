@@ -58,7 +58,7 @@ def extract_posts(html):
         full_title = f"{title} — {update_text}" if update_text else title
 
         # Only keep posts that look like releases
-        if re.search(r"(S\d{1,2}E\d{1,2}|720p|1080p|2160p|WEB|BluRay|10bit|Reuploaded|WEBRip)", full_title, re.I):
+        if re.search(r"(S\d{1,2}E\d{1,2}|720p|1080p|2160p|WEB[-\. ]?(DL|RIP|H\.?26[45])?|BluRay|HDR|10bit|Reuploaded)", full_title, re.I):
             posts.append((full_title, href))
 
     return posts
