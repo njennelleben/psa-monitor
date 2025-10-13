@@ -28,7 +28,7 @@ def send_telegram(msg):
             data={  
                 "chat_id": CHAT_ID,  
                 "text": msg,  
-                "disable_web_page_preview": True  # cleaner look, no preview box  
+                "disable_web_page_preview": False  # cleaner look, no preview box  
             }  
         )  
     except Exception:  
