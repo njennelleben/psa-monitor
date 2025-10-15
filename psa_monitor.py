@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-PSA Monitor v3.5 — Smart + Cookies.txt Edition
------------------------------------------------
+PSA Monitor v3.5.1 — Cookie Verification Fix
+--------------------------------------------
 ✅ Reads exported cookies.txt (Netscape format)
-✅ Verifies PSA Premium login
-✅ Detects TV/movie updates intelligently (SxxEyy + quality)
-✅ Follows psa.wf/goto and get-to.link to final gofile/mega
-✅ Sends formatted Telegram alerts
+✅ Works even if domain is 'www.psa.wf' or '.psa.wf'
+✅ Detects login by scanning homepage (Logout/My Account)
+✅ Handles TV episode + quality detection (SxxEyy, 720p)
+✅ Extracts gofile/mega links through /goto + get-to.link
 """
 
 import os
@@ -64,23 +64,34 @@ def load_cookies_from_file():
     return cookies
 
 def verify_cookie(cookies):
+    valid_cookie_found = False
     for name, value in cookies.items():
-        if "wordpress_sec_" in name or "wordpress_logged_in_" in name:
-            scraper.cookies.clear()
-            scraper.cookies.set(name, value, domain="psa.wf", path="/")
-            try:
-                r = scraper.get("https://psa.wf/wp-admin/profile.php", timeout=15)
-                if "Profile" in r.text or "Log Out" in r.text:
-                    print(f"✅ Cookie {name} is valid!")
-                    send_telegram("🍪 <b>PSA Premium login verified.</b>")
-                    return True
-            except:
-                pass
-    print("❌ No valid login cookie found.")
-    send_telegram("⚠️ <b>PSA cookie invalid or expired.</b>")
-    return False
+        if "wordpress_logged_in_" in name or "wordpress_sec_" in name:
+            valid_cookie_found = True
+            # No strict domain check, just add cookie globally
+            scraper.cookies.set(name, value)
+    
+    if not valid_cookie_found:
+        print("❌ No WordPress login cookie found in cookies.txt.")
+        send_telegram("⚠️ <b>No PSA login cookie found in cookies.txt.</b>")
+        return False
 
-# --- Utils ---
+    # Verify login by checking homepage for logout/account text
+    try:
+        r = scraper.get(CHECK_URL, timeout=15)
+        if any(x in r.text for x in ["Logout", "My Account", "profile.php"]):
+            print("✅ PSA login verified via homepage.")
+            send_telegram("🍪 <b>PSA Premium login verified.</b>")
+            return True
+        else:
+            print("⚠️ PSA homepage did not confirm login.")
+            send_telegram("⚠️ <b>PSA cookie seems expired or invalid.</b>")
+            return False
+    except Exception as e:
+        print("Cookie verification failed:", e)
+        return False
+
+# --- Utilities ---
 def load_seen():
     try:
         with open(SEEN_FILE, "r", encoding="utf-8") as f:
@@ -92,12 +103,10 @@ def save_seen(seen):
     with open(SEEN_FILE, "w", encoding="utf-8") as f:
         json.dump(seen, f, indent=2)
 
-# --- Parsing helpers ---
 QUALITY_RE = re.compile(r'\b(2160p|1080p|720p|480p|4k|HD)\b', re.I)
 EPISODE_RE = re.compile(r'\bS\d{1,2}E\d{1,2}\b', re.I)
 
 def parse_update_text(text):
-    """Extract episode and quality from title or update line"""
     ep = EPISODE_RE.search(text)
     q = QUALITY_RE.search(text)
     return (ep.group(0).upper() if ep else None,
@@ -141,7 +150,6 @@ def extract_final_links(post_url, episode, quality):
         soup = BeautifulSoup(r.text, "html.parser")
         candidate_links = []
 
-        # locate the section for this episode if TV
         if episode:
             section = soup.find(lambda tag: tag.name in ("h3", "div", "span") and episode.lower() in tag.get_text(" ", strip=True).lower())
             if section:
@@ -150,13 +158,11 @@ def extract_final_links(post_url, episode, quality):
                     if not quality or quality in t or "download" in t:
                         candidate_links.append(urljoin(post_url, a["href"]))
         else:
-            # movie — look globally for quality
             for a in soup.find_all("a", href=True):
                 t = a.get_text(" ", strip=True).lower()
                 if not quality or quality in t or "download" in t:
                     candidate_links.append(urljoin(post_url, a["href"]))
 
-        # follow any PSA redirect or get-to.link
         final_links = []
         for c in candidate_links:
             if "goto" in c or "get-to.link" in c:
@@ -172,7 +178,7 @@ def main():
     verify_cookie(cookies)
 
     seen = load_seen()
-    send_telegram("🦂 <b>PSA Premium Smart Monitor v3.5 started.</b>")
+    send_telegram("🦂 <b>PSA Premium Smart Monitor v3.5.1 started.</b>")
 
     while True:
         try:
