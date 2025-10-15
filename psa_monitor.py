@@ -1,31 +1,26 @@
 #!/usr/bin/env python3
 """
-PSA Monitor v3.5.1 — Cookie Verification Fix
---------------------------------------------
-✅ Reads exported cookies.txt (Netscape format)
-✅ Works even if domain is 'www.psa.wf' or '.psa.wf'
-✅ Detects login by scanning homepage (Logout/My Account)
-✅ Handles TV episode + quality detection (SxxEyy, 720p)
-✅ Extracts gofile/mega links through /goto + get-to.link
+PSA Premium Monitor v4.0 — Reuploads + Smart Detection Edition
+---------------------------------------------------------------
+✅ Homepage + Recently Reuploaded
+✅ Uses cookies.txt (Premium)
+✅ Sends 🆕 for new releases, 🔁 for reuploads
+✅ Keeps PSA-style release names (no renaming)
+✅ Extracts gofile & mega links only
 """
 
-import os
-import re
-import time
-import json
-import requests
-import cloudscraper
+import os, re, time, json, requests, cloudscraper
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 
-# --- CONFIG ---
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8483644919:AAHPam6XshOdY7umlhtunnLRGdgPTETvhJ4")
-CHAT_ID = os.getenv("CHAT_ID", "6145988808")
-CHECK_URL = "https://psa.wf/"
+# === CONFIG ===
+BOT_TOKEN   = os.getenv("BOT_TOKEN", "8483644919:AAHPam6XshOdY7umlhtunnLRGdgPTETvhJ4")
+CHAT_ID     = os.getenv("CHAT_ID", "6145988808")
+CHECK_URL   = "https://psa.wf/"
 COOKIE_FILE = "cookies.txt"
-SEEN_FILE = "seen.json"
-SLEEP_SEC = 3
-# --------------
+SEEN_FILE   = "seen.json"
+SLEEP_SEC   = 1  # every 1 second
+# ==============
 
 scraper = cloudscraper.create_scraper()
 scraper.headers.update({
@@ -34,178 +29,191 @@ scraper.headers.update({
     "Accept-Language": "en-US,en;q=0.9"
 })
 
-TG_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
+TG_API = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
-# --- Telegram ---
+# --- helper functions ------------------------------------------------------
+
 def send_telegram(msg):
+    """Send Telegram message safely."""
     try:
         requests.post(
-            TG_API + "/sendMessage",
-            data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "HTML"},
+            TG_API,
+            data={
+                "chat_id": CHAT_ID,
+                "text": msg,
+                "disable_web_page_preview": True,
+                "parse_mode": "HTML"
+            },
+            timeout=10,
         )
     except Exception as e:
         print("Telegram error:", e)
 
-# --- Cookie Loader ---
-def load_cookies_from_file():
+
+def load_cookies():
+    """Load cookies from cookies.txt (Netscape format)."""
     cookies = {}
     try:
         with open(COOKIE_FILE, "r", encoding="utf-8") as f:
             for line in f:
-                if line.strip().startswith("#") or not line.strip():
+                if not line.strip() or line.startswith("#"):
                     continue
                 parts = line.strip().split("\t")
                 if len(parts) >= 7:
-                    name, value = parts[5], parts[6]
-                    cookies[name] = value
-        print(f"✅ Loaded {len(cookies)} cookies from file.")
+                    cookies[parts[5]] = parts[6]
+        print(f"✅ Loaded {len(cookies)} cookies.")
     except Exception as e:
-        print(f"[!] Failed to read {COOKIE_FILE}:", e)
+        print("❌ Failed to read cookies.txt:", e)
     return cookies
 
+
 def verify_cookie(cookies):
-    valid_cookie_found = False
-    for name, value in cookies.items():
-        if "wordpress_logged_in_" in name or "wordpress_sec_" in name:
-            valid_cookie_found = True
-            # No strict domain check, just add cookie globally
-            scraper.cookies.set(name, value)
-    
-    if not valid_cookie_found:
-        print("❌ No WordPress login cookie found in cookies.txt.")
-        send_telegram("⚠️ <b>No PSA login cookie found in cookies.txt.</b>")
-        return False
-
-    # Verify login by checking homepage for logout/account text
+    """Check if the PSA Premium cookie is valid."""
+    for k, v in cookies.items():
+        if "wordpress" in k:
+            scraper.cookies.set(k, v, domain="psa.wf", path="/")
     try:
-        r = scraper.get(CHECK_URL, timeout=15)
-        if any(x in r.text for x in ["Logout", "My Account", "profile.php"]):
-            print("✅ PSA login verified via homepage.")
-            send_telegram("🍪 <b>PSA Premium login verified.</b>")
+        r = scraper.get("https://psa.wf/wp-admin/profile.php", timeout=10)
+        if "Profile" in r.text or "Log Out" in r.text:
+            print("✅ Premium cookie valid.")
             return True
-        else:
-            print("⚠️ PSA homepage did not confirm login.")
-            send_telegram("⚠️ <b>PSA cookie seems expired or invalid.</b>")
-            return False
-    except Exception as e:
-        print("Cookie verification failed:", e)
-        return False
+    except:
+        pass
+    print("⚠️ Cookie may be invalid or expired.")
+    return False
 
-# --- Utilities ---
+
 def load_seen():
     try:
-        with open(SEEN_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+        return json.load(open(SEEN_FILE, "r", encoding="utf-8"))
     except:
         return {}
 
-def save_seen(seen):
-    with open(SEEN_FILE, "w", encoding="utf-8") as f:
-        json.dump(seen, f, indent=2)
 
-QUALITY_RE = re.compile(r'\b(2160p|1080p|720p|480p|4k|HD)\b', re.I)
-EPISODE_RE = re.compile(r'\bS\d{1,2}E\d{1,2}\b', re.I)
+def save_seen(data):
+    try:
+        with open(SEEN_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+    except:
+        pass
 
-def parse_update_text(text):
-    ep = EPISODE_RE.search(text)
-    q = QUALITY_RE.search(text)
-    return (ep.group(0).upper() if ep else None,
-            q.group(0).lower() if q else None)
 
-def extract_homepage_posts(html):
-    soup = BeautifulSoup(html, "html.parser")
+# --- scraping ---------------------------------------------------------------
+
+def extract_homepage_posts(soup):
     posts = []
-    for article in soup.find_all("article", class_=re.compile("post-")):
-        h2 = article.find("h2", class_="entry-title")
-        if not h2: continue
-        a = h2.find("a", href=True)
-        if not a: continue
-        title = a.text.strip()
-        url = urljoin(CHECK_URL, a["href"])
-        caption = article.find("p", class_="caption")
-        update = caption.get_text(strip=True) if caption else ""
-        posts.append({"title": title, "url": url, "update": update})
+    for a in soup.select("article.post a.entry-title, h2.entry-title a"):
+        title = a.get_text(" ", strip=True)
+        href = urljoin(CHECK_URL, a["href"])
+        posts.append({"title": title, "url": href, "type": "new"})
     return posts
 
-# --- Link extraction ---
-def follow_redirects(url):
-    try:
-        r = scraper.get(url, timeout=20)
-        soup = BeautifulSoup(r.text, "html.parser")
-        final = []
-        for a in soup.find_all("a", href=True):
-            href = a["href"]
-            if href.startswith("/"):
-                href = urljoin(url, href)
-            if "gofile.io" in href or "mega.nz" in href:
-                final.append(href)
-        return list(dict.fromkeys(final))
-    except Exception as e:
-        print("follow_redirects error:", e)
-        return []
 
-def extract_final_links(post_url, episode, quality):
+def extract_reuploads(soup):
+    posts = []
+    h2 = soup.find("h2", string=re.compile("Recently Reuploaded", re.I))
+    if h2:
+        ul = h2.find_next("ul")
+        if ul:
+            for li in ul.find_all("li"):
+                a = li.find("a", href=True)
+                if a:
+                    title = a.get_text(" ", strip=True)
+                    href = urljoin(CHECK_URL, a["href"])
+                    posts.append({"title": title, "url": href, "type": "reupload"})
+    return posts
+
+
+def extract_release_links(post_url):
+    """Extract all releases and DDLs for a given post."""
     try:
         r = scraper.get(post_url, timeout=25)
+        r.raise_for_status()
         soup = BeautifulSoup(r.text, "html.parser")
-        candidate_links = []
 
-        if episode:
-            section = soup.find(lambda tag: tag.name in ("h3", "div", "span") and episode.lower() in tag.get_text(" ", strip=True).lower())
-            if section:
-                for a in section.find_all("a", href=True):
-                    t = a.get_text(" ", strip=True).lower()
-                    if not quality or quality in t or "download" in t:
-                        candidate_links.append(urljoin(post_url, a["href"]))
-        else:
-            for a in soup.find_all("a", href=True):
-                t = a.get_text(" ", strip=True).lower()
-                if not quality or quality in t or "download" in t:
-                    candidate_links.append(urljoin(post_url, a["href"]))
+        releases = []
+        for a in soup.find_all("a", href=True):
+            text = a.get_text(" ", strip=True)
+            href = a["href"]
 
-        final_links = []
-        for c in candidate_links:
-            if "goto" in c or "get-to.link" in c:
-                final_links.extend(follow_redirects(c))
-        return list(dict.fromkeys(final_links))
+            if re.search(r"S\d{2}E\d{2}", text, re.I) and re.search(r"(720p|1080p|2160p|480p)", text, re.I):
+                if "goto" in href:
+                    final_links = extract_final_links(href)
+                    if final_links:
+                        releases.append((text, final_links))
+        return releases
+
+    except Exception as e:
+        print("extract_release_links error:", e)
+        return []
+
+
+def extract_final_links(goto_url):
+    """Follow goto → get-to.link → final DDL links."""
+    links = []
+    try:
+        r = scraper.get(goto_url, timeout=25, allow_redirects=True)
+        r.raise_for_status()
+        soup = BeautifulSoup(r.text, "html.parser")
+
+        for a in soup.find_all("a", href=True):
+            href = a["href"].strip()
+            if "gofile.io" in href or "mega.nz" in href:
+                links.append(href)
+
+        if not links:
+            found = re.findall(r'https?://(?:gofile\.io|mega\.nz)/[A-Za-z0-9_\-./#?=]+', r.text)
+            links.extend(found)
+
+        return list(dict.fromkeys(links))
     except Exception as e:
         print("extract_final_links error:", e)
         return []
 
-# --- Main loop ---
+
+def format_message(title, releases, is_reupload):
+    """Telegram message format (🆕 new / 🔁 reupload)."""
+    header = "🔁" if is_reupload else "🆕"
+    msg = f"{header} <b>{title}</b>\n"
+    for name, links in releases:
+        msg += f"\n🦂 {name} :\n"
+        for l in links:
+            msg += f"{l}\n"
+    return msg.strip()
+
+
+# --- main ------------------------------------------------------------------
+
 def main():
-    cookies = load_cookies_from_file()
+    cookies = load_cookies()
     verify_cookie(cookies)
 
     seen = load_seen()
-    send_telegram("🦂 <b>PSA Premium Smart Monitor v3.5.1 started.</b>")
+    send_telegram("🆕 <b>PSA Premium Monitor v4.0 started</b>")
 
     while True:
         try:
-            r = scraper.get(CHECK_URL, timeout=25)
-            posts = extract_homepage_posts(r.text)
-            for p in posts:
+            html = scraper.get(CHECK_URL, timeout=20).text
+            soup = BeautifulSoup(html, "html.parser")
+
+            all_posts = extract_homepage_posts(soup) + extract_reuploads(soup)
+
+            for p in reversed(all_posts):
                 if p["url"] in seen:
                     continue
 
-                title, update = p["title"], p.get("update", "")
-                episode, quality = parse_update_text(update or title)
-                final_links = extract_final_links(p["url"], episode, quality)
-
-                msg = f"🦂 <b>{title}</b>"
-                if episode or quality:
-                    msg += f" — {episode or ''} {quality or ''}"
-                msg += f"\n\n🔗 DDLs:\n" + ("\n".join(final_links) if final_links else "(No gofile/mega links found)")
-
+                print("🆕", p["title"])
+                releases = extract_release_links(p["url"])
+                msg = format_message(p["title"], releases, p["type"] == "reupload")
                 send_telegram(msg)
-                print("✅ Sent:", title)
 
-                seen[p["url"]] = title
+                seen[p["url"]] = p["title"]
                 save_seen(seen)
 
         except Exception as e:
-            print("Main loop error:", e)
+            print("Loop error:", e)
         time.sleep(SLEEP_SEC)
+
 
 if __name__ == "__main__":
     main()
