@@ -1,33 +1,31 @@
 #!/usr/bin/env python3
 """
-PSA Monitor v3.2
-- Auto-detects and verifies PSA Premium cookie
-- Fetches new movie/episode updates from PSA
-- Follows get-to.link to extract final gofile.io / mega.nz links
-- Sends formatted Telegram alerts
-- Works on Railway / VPS / local Python
-
-Requirements:
-pip install requests cloudscraper beautifulsoup4
+PSA Monitor v3.5 — Smart + Cookies.txt Edition
+-----------------------------------------------
+✅ Reads exported cookies.txt (Netscape format)
+✅ Verifies PSA Premium login
+✅ Detects TV/movie updates intelligently (SxxEyy + quality)
+✅ Follows psa.wf/goto and get-to.link to final gofile/mega
+✅ Sends formatted Telegram alerts
 """
 
+import os
+import re
 import time
 import json
-import re
-from bs4 import BeautifulSoup
-import cloudscraper
-from urllib.parse import urljoin
 import requests
-import os
+import cloudscraper
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin
 
-# ========== CONFIG ==========
-BOT_TOKEN   = os.getenv("BOT_TOKEN", "8483644919:AAHPam6XshOdY7umlhtunnLRGdgPTETvhJ4")
-CHAT_ID     = os.getenv("CHAT_ID", "6145988808")
-CHECK_URL   = "https://psa.wf/"
-SLEEP_SEC   = 3
-COOKIE_FILE = "all_cookies.txt"  # optional fallback cookie file
-SEEN_FILE   = "seen_v3.json"
-# ============================
+# --- CONFIG ---
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8483644919:AAHPam6XshOdY7umlhtunnLRGdgPTETvhJ4")
+CHAT_ID = os.getenv("CHAT_ID", "6145988808")
+CHECK_URL = "https://psa.wf/"
+COOKIE_FILE = "cookies.txt"
+SEEN_FILE = "seen.json"
+SLEEP_SEC = 5
+# --------------
 
 scraper = cloudscraper.create_scraper()
 scraper.headers.update({
@@ -38,207 +36,170 @@ scraper.headers.update({
 
 TG_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-# ========== COOKIE LOADING ==========
-def load_cookies_from_env():
-    """Read cookie name/value from Railway environment."""
-    cookie_name = os.getenv("PSA_COOKIE_NAME")
-    cookie_value = os.getenv("PSA_COOKIE_VALUE")
-    if cookie_name and cookie_value:
-        print(f"✅ Loaded cookie from environment: {cookie_name}")
-        return {cookie_name: cookie_value}
-    else:
-        print("⚠️ PSA_COOKIE_NAME or PSA_COOKIE_VALUE not set in environment.")
-        return {}
+# --- Telegram ---
+def send_telegram(msg):
+    try:
+        requests.post(
+            TG_API + "/sendMessage",
+            data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "HTML"},
+        )
+    except Exception as e:
+        print("Telegram error:", e)
 
-def load_cookies_from_file(path):
-    """Load Netscape format cookies.txt file."""
+# --- Cookie Loader ---
+def load_cookies_from_file():
     cookies = {}
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(COOKIE_FILE, "r", encoding="utf-8") as f:
             for line in f:
-                line = line.strip()
-                if not line or line.startswith("#"):
+                if line.strip().startswith("#") or not line.strip():
                     continue
-                parts = line.split("\t")
+                parts = line.strip().split("\t")
                 if len(parts) >= 7:
                     name, value = parts[5], parts[6]
                     cookies[name] = value
         print(f"✅ Loaded {len(cookies)} cookies from file.")
-    except FileNotFoundError:
-        print(f"⚠️ Cookie file not found: {path}")
     except Exception as e:
-        print("❌ Error reading cookie file:", e)
+        print(f"[!] Failed to read {COOKIE_FILE}:", e)
     return cookies
 
-# Load cookies (env preferred)
-cookie_map = load_cookies_from_env()
-if not cookie_map:
-    cookie_map = load_cookies_from_file(COOKIE_FILE)
+def verify_cookie(cookies):
+    for name, value in cookies.items():
+        if "wordpress_sec_" in name or "wordpress_logged_in_" in name:
+            scraper.cookies.clear()
+            scraper.cookies.set(name, value, domain="psa.wf", path="/")
+            try:
+                r = scraper.get("https://psa.wf/wp-admin/profile.php", timeout=15)
+                if "Profile" in r.text or "Log Out" in r.text:
+                    print(f"✅ Cookie {name} is valid!")
+                    send_telegram("🍪 <b>PSA Premium login verified.</b>")
+                    return True
+            except:
+                pass
+    print("❌ No valid login cookie found.")
+    send_telegram("⚠️ <b>PSA cookie invalid or expired.</b>")
+    return False
 
-if cookie_map:
-    cookie_header = "; ".join(f"{k}={v}" for k, v in cookie_map.items())
-    scraper.headers.update({"Cookie": cookie_header})
-    print(f"🍪 Cookie session active with {len(cookie_map)} key(s).")
-else:
-    print("❌ No cookies found. Premium-only links will likely fail.")
-
-# ========== UTILITIES ==========
+# --- Utils ---
 def load_seen():
     try:
         with open(SEEN_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
+    except:
         return {}
 
 def save_seen(seen):
-    try:
-        with open(SEEN_FILE, "w", encoding="utf-8") as f:
-            json.dump(seen, f, indent=2, ensure_ascii=False)
-    except Exception as e:
-        print("Could not save seen list:", e)
+    with open(SEEN_FILE, "w", encoding="utf-8") as f:
+        json.dump(seen, f, indent=2)
 
-def send_telegram(text):
-    try:
-        requests.post(
-            TG_API + "/sendMessage",
-            data={
-                "chat_id": CHAT_ID,
-                "text": text,
-                "disable_web_page_preview": False,
-                "parse_mode": "HTML"
-            },
-            timeout=15,
-        )
-    except Exception as e:
-        print("Telegram send error:", e)
-
-# ========== PARSING ==========
+# --- Parsing helpers ---
 QUALITY_RE = re.compile(r'\b(2160p|1080p|720p|480p|4k|HD)\b', re.I)
-EPISODE_RE = re.compile(r'\bS(\d{1,2})E(\d{1,2})\b', re.I)
+EPISODE_RE = re.compile(r'\bS\d{1,2}E\d{1,2}\b', re.I)
 
-def parse_update_line(text):
-    if not text:
-        return False, None, None
-    t = text.strip()
-    ep_m = EPISODE_RE.search(t)
-    qual_m = QUALITY_RE.search(t)
-    is_tv = bool(ep_m)
-    episode_code = ep_m.group(0).upper() if ep_m else None
-    quality = qual_m.group(0).lower() if qual_m else None
-    return is_tv, episode_code, quality
+def parse_update_text(text):
+    """Extract episode and quality from title or update line"""
+    ep = EPISODE_RE.search(text)
+    q = QUALITY_RE.search(text)
+    return (ep.group(0).upper() if ep else None,
+            q.group(0).lower() if q else None)
 
 def extract_homepage_posts(html):
     soup = BeautifulSoup(html, "html.parser")
     posts = []
     for article in soup.find_all("article", class_=re.compile("post-")):
         h2 = article.find("h2", class_="entry-title")
-        if not h2:
-            continue
+        if not h2: continue
         a = h2.find("a", href=True)
-        if not a:
-            continue
-        title = a.get_text(" ", strip=True)
-        href = urljoin(CHECK_URL, a["href"])
+        if not a: continue
+        title = a.text.strip()
+        url = urljoin(CHECK_URL, a["href"])
         caption = article.find("p", class_="caption")
-        update_text = caption.get_text(" ", strip=True) if caption else ""
-        posts.append({"title": title, "url": href, "update": update_text})
+        update = caption.get_text(strip=True) if caption else ""
+        posts.append({"title": title, "url": url, "update": update})
     return posts
 
-# ========== LINK EXTRACTION ==========
-def follow_and_extract_hosts(link_url):
+# --- Link extraction ---
+def follow_redirects(url):
     try:
-        r = scraper.get(link_url, timeout=25)
-        r.raise_for_status()
+        r = scraper.get(url, timeout=20)
         soup = BeautifulSoup(r.text, "html.parser")
         final = []
         for a in soup.find_all("a", href=True):
-            href = a["href"].strip()
-            if href.startswith("https://gofile.io/") or href.startswith("https://mega.nz/"):
+            href = a["href"]
+            if href.startswith("/"):
+                href = urljoin(url, href)
+            if "gofile.io" in href or "mega.nz" in href:
                 final.append(href)
-        if not final:
-            text = r.text
-            final += re.findall(r'https?://gofile\.io/[A-Za-z0-9_\-]+', text)
-            final += re.findall(r'https?://mega\.nz/[A-Za-z0-9_\-./#?=]+', text)
         return list(dict.fromkeys(final))
-    except requests.exceptions.HTTPError as e:
-        print(f"follow_and_extract_hosts error: {e}")
-        return []
     except Exception as e:
-        print("follow_and_extract_hosts error:", e)
+        print("follow_redirects error:", e)
         return []
 
-def extract_final_links_for_post(post_url, is_tv, episode_code, quality):
+def extract_final_links(post_url, episode, quality):
     try:
         r = scraper.get(post_url, timeout=25)
-        r.raise_for_status()
         soup = BeautifulSoup(r.text, "html.parser")
-        anchors = soup.find_all("a", href=True)
-        candidates = []
-        for a in anchors:
-            href = a["href"]
-            text = a.get_text(" ", strip=True).lower()
-            if "get-to.link" in href or "download" in text:
-                candidates.append(urljoin(post_url, href))
-        found = []
-        for link in candidates:
-            hosts = follow_and_extract_hosts(link)
-            for h in hosts:
-                if h not in found:
-                    found.append(h)
-            if any("gofile" in x for x in found) and any("mega" in x for x in found):
-                break
-        return found
+        candidate_links = []
+
+        # locate the section for this episode if TV
+        if episode:
+            section = soup.find(lambda tag: tag.name in ("h3", "div", "span") and episode.lower() in tag.get_text(" ", strip=True).lower())
+            if section:
+                for a in section.find_all("a", href=True):
+                    t = a.get_text(" ", strip=True).lower()
+                    if not quality or quality in t or "download" in t:
+                        candidate_links.append(urljoin(post_url, a["href"]))
+        else:
+            # movie — look globally for quality
+            for a in soup.find_all("a", href=True):
+                t = a.get_text(" ", strip=True).lower()
+                if not quality or quality in t or "download" in t:
+                    candidate_links.append(urljoin(post_url, a["href"]))
+
+        # follow any PSA redirect or get-to.link
+        final_links = []
+        for c in candidate_links:
+            if "goto" in c or "get-to.link" in c:
+                final_links.extend(follow_redirects(c))
+        return list(dict.fromkeys(final_links))
     except Exception as e:
-        print("extract_final_links_for_post error:", e)
+        print("extract_final_links error:", e)
         return []
 
-# ========== TELEGRAM MESSAGE ==========
-def format_message(title, final_links):
-    links_text = "\n".join(final_links) if final_links else "(No gofile/mega links found)"
-    return f"🦂 <b>{title}</b>\n\n🔗 DDLs:\n{links_text}"
-
-# ========== MAIN LOOP ==========
+# --- Main loop ---
 def main():
-    seen = load_seen()
-    try:
-        r = scraper.get(CHECK_URL, timeout=25)
-        r.raise_for_status()
-        posts = extract_homepage_posts(r.text)
-        for p in posts:
-            seen[p["url"]] = p["title"]
-        print(f"✅ Initialized with {len(seen)} existing posts.")
-    except Exception as e:
-        print("Initial load failed:", e)
+    cookies = load_cookies_from_file()
+    verify_cookie(cookies)
 
-    send_telegram("🦂 PSA Premium Monitor v3.2 started")
+    seen = load_seen()
+    send_telegram("🦂 <b>PSA Premium Smart Monitor v3.5 started.</b>")
 
     while True:
         try:
             r = scraper.get(CHECK_URL, timeout=25)
-            r.raise_for_status()
             posts = extract_homepage_posts(r.text)
-
             for p in posts:
-                title = p["title"]
-                url = p["url"]
-                update_txt = p.get("update", "")
-                if url in seen and seen[url] == title:
+                if p["url"] in seen:
                     continue
 
-                is_tv, episode_code, quality = parse_update_line(update_txt or title)
-                final_links = extract_final_links_for_post(url, is_tv, episode_code, quality)
-                display_title = f"{title} — {update_txt}" if update_txt else title
-                msg = format_message(display_title, final_links)
+                title, update = p["title"], p.get("update", "")
+                episode, quality = parse_update_text(update or title)
+                final_links = extract_final_links(p["url"], episode, quality)
+
+                msg = f"🦂 <b>{title}</b>"
+                if episode or quality:
+                    msg += f" — {episode or ''} {quality or ''}"
+                msg += f"\n\n🔗 DDLs:\n" + ("\n".join(final_links) if final_links else "(No gofile/mega links found)")
+
                 send_telegram(msg)
-                print("Sent:", display_title)
-                seen[url] = title
+                print("✅ Sent:", title)
+
+                seen[p["url"]] = title
                 save_seen(seen)
 
         except Exception as e:
             print("Main loop error:", e)
-
         time.sleep(SLEEP_SEC)
 
-# ========== SAFE ENTRY POINT ==========
 if __name__ == "__main__":
     main()
