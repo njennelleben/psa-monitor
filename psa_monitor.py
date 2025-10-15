@@ -9,7 +9,7 @@ from urllib.parse import urljoin
 BOT_TOKEN = "8483644919:AAHPam6XshOdY7umlhtunnLRGdgPTETvhJ4"  
 CHAT_ID   = "6145988808"  
 CHECK_URL = "https://psa.wf/"  
-SLEEP_SEC = 1   # check every 3 seconds  
+SLEEP_SEC = 1   # check every second  
 # ==============  
   
 scraper = cloudscraper.create_scraper()  
@@ -28,7 +28,7 @@ def send_telegram(msg):
             data={  
                 "chat_id": CHAT_ID,  
                 "text": msg,  
-                "disable_web_page_preview": False  # cleaner look, no preview box  
+                "disable_web_page_preview": False  
             }  
         )  
     except Exception:  
@@ -36,7 +36,7 @@ def send_telegram(msg):
   
   
 def extract_main_posts(soup):  
-    """Extract normal homepage posts (Billy the Kid, Tulsa King, etc.)"""  
+    """Extract normal homepage posts (e.g., The Morning Show, FBI, etc.)"""  
     posts = []  
     for article in soup.find_all("article", class_=re.compile("post-")):  
         h2 = article.find("h2", class_="entry-title")  
@@ -81,7 +81,7 @@ def extract_reuploads(soup):
   
 def format_message(title, url):  
     """Telegram message format."""  
-    return f"📄 {title}\n\n🔗 Open URL - {url}"  # <— added one blank line for cleaner spacing  
+    return f"📄 {title}\n\n🔗 Open URL - {url}"  
   
   
 def main():  
@@ -125,5 +125,5 @@ def main():
         time.sleep(SLEEP_SEC)  
   
   
-if name == "main":  
+if __name__ == "__main__":  
     main()
