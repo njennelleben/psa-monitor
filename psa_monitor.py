@@ -24,7 +24,7 @@ import os
 BOT_TOKEN   = os.getenv("BOT_TOKEN", "8483644919:AAHPam6XshOdY7umlhtunnLRGdgPTETvhJ4")
 CHAT_ID     = os.getenv("CHAT_ID", "6145988808")
 CHECK_URL   = "https://psa.wf/"
-SLEEP_SEC   = 5
+SLEEP_SEC   = 3
 COOKIE_FILE = "all_cookies.txt"  # optional fallback cookie file
 SEEN_FILE   = "seen_v3.json"
 # ============================
