@@ -19,7 +19,7 @@ CHAT_ID     = os.getenv("CHAT_ID", "6145988808")
 CHECK_URL   = "https://psa.wf/"
 COOKIE_FILE = "cookies.txt"
 SEEN_FILE   = "seen.json"
-SLEEP_SEC   = 1  # every 1 second
+SLEEP_SEC   = 3  # every 1 second
 # ==============
 
 scraper = cloudscraper.create_scraper()
