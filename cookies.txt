@@ -1,0 +1,20 @@
+# Netscape HTTP Cookie File
+# http://curl.haxx.se/rfc/cookie_spec.html
+# This is a generated file!  Do not edit.
+
+psa.wf	FALSE	/wp-content/plugins	TRUE	1761699038	wordpress_sec_de2137dde00e55a295e72260d1b86e7b	Sniper_Mask%7C1761655838%7CsrCIPGhxtQxprBZ3y0XrlsfDuO5Il2rPrlMFugsmCUr%7Cf46a0573520ee6c9f9080908b562a06f41b5755fa870fbd6346f3a2965e44de7
+psa.wf	FALSE	/wp-admin	TRUE	1761699038	wordpress_sec_de2137dde00e55a295e72260d1b86e7b	Sniper_Mask%7C1761655838%7CsrCIPGhxtQxprBZ3y0XrlsfDuO5Il2rPrlMFugsmCUr%7Cf46a0573520ee6c9f9080908b562a06f41b5755fa870fbd6346f3a2965e44de7
+psa.wf	FALSE	/	FALSE	1791985278	wp-dark-mode-device	dark
+psa.wf	FALSE	/	FALSE	1791982001	wp-dark-mode-choice	light
+psa.wf	FALSE	/	TRUE	0	wordpress_test_cookie	WP%20Cookie%20check
+api.hcaptcha.com	FALSE	/	TRUE	1763038040	hmt_id	511ede63-2156-4e32-a1e6-b43cee0edab5
+psa.wf	FALSE	/	TRUE	1761699038	wordpress_logged_in_de2137dde00e55a295e72260d1b86e7b	Sniper_Mask%7C1761655838%7CsrCIPGhxtQxprBZ3y0XrlsfDuO5Il2rPrlMFugsmCUr%7C87c67380c73be1512f66a95f32e5ad0b3fe8ed68c15376755c9c5a6ba201e746
+psa.wf	FALSE	/	TRUE	1760489440	wfwaf-authcookie-ce075c21a18bf4285ff57bcf0d23a10f	44809%7Cother%7Cread%7C02326b5dc4e9647d79a501c044d24392ebcb9dff04b367ad8db1b342240d4ab4
+psa.wf	FALSE	/	TRUE	1760482240	wpdiscuz_nonce_de2137dde00e55a295e72260d1b86e7b	ab47c412d8
+.google.com	TRUE	/	TRUE	1775998316	AEC	AaJma5sh4ViojkUJOqZa4XO1bwArHZINsw6rGqb0Bd8IaHLw0mgfGiPidg
+.google.com	TRUE	/	TRUE	1776257516	NID	525=YTqJFcO2m5jFh81Z77iUVY76fzl0QFEjmIU2P_9cW9mBKZl0Te3mrTsS-b0xjEe4zTYClUlSf2X6XE4rBgB3LBJw2uAI1qeCFQM7Kfhplcm-tVPRxuPhcqV7akAELpjOHcn3xwoAGo3NibrIdb6ZLV235QDdLOV82NCiH53rMGXn8VN8JK8_day-cnCGTQTaFgk-fj7bFbuzU0b77udQQAefWLem-oaIICb_-nEXx-U85WjP
+.chromewebstore.google.com	TRUE	/	FALSE	1795009168	_ga	GA1.1.794245591.1760446349
+chromewebstore.google.com	FALSE	/	TRUE	1763038355	OTZ	8302373_34_34__34_
+psa.wf	FALSE	/	TRUE	1791982714	wp-settings-time-44809	1760446713
+.psa.wf	TRUE	/	TRUE	1791985012	cf_clearance	YYu4HXdpWvfG2PSZ.AUtb1tDzEvXaBVXY68f51Lwupg-1760449013-1.2.1.1-rZ9_Dl6TkOaqz5tIIyCNRe75N4YEzU5Qr8D6UGPAZ39dWRI6DoliIsaswsrZnmDl7Cx77vPaP7gkca6gqd3NQx06hWq80qdXVPWwMuPgT86dsawsTjZJsJ.jZVrTqQ56jq7GFygXPmrRNzj4fF9sJvX.FGrS8y5NsTs2iSNph2.tWYw6PMdH0z27HaIFxKSjaIGKhiQtJ1A4lWV_58BW6Av1hsZOp4PxF2LI4ORxcEnJz67._0V3pAhD5waypUMr
+.chromewebstore.google.com	TRUE	/	FALSE	1795009266	_ga_KHZNC1Q6K0	GS2.1.s1760449168$o2$g1$t1760449266$j52$l0$h0
