@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-PSA Monitor v3.1
-- Detects new posts on PSA website
-- Automatically extracts gofile.io and mega.nz final links
-- Uses your PSA premium cookies
-- Sends formatted Telegram messages
+PSA Monitor v3.2
+- Auto-detects and verifies PSA Premium cookie
+- Fetches new movie/episode updates from PSA
+- Follows get-to.link to extract final gofile.io / mega.nz links
+- Sends formatted Telegram alerts
+- Works on Railway / VPS / local Python
 
 Requirements:
 pip install requests cloudscraper beautifulsoup4
@@ -23,8 +24,8 @@ import os
 BOT_TOKEN   = os.getenv("BOT_TOKEN", "8483644919:AAHPam6XshOdY7umlhtunnLRGdgPTETvhJ4")
 CHAT_ID     = os.getenv("CHAT_ID", "6145988808")
 CHECK_URL   = "https://psa.wf/"
-SLEEP_SEC   = 3  # check interval
-COOKIE_FILE = "all_cookies.txt"  # optional backup cookie file
+SLEEP_SEC   = 5
+COOKIE_FILE = "all_cookies.txt"  # optional fallback cookie file
 SEEN_FILE   = "seen_v3.json"
 # ============================
 
@@ -37,20 +38,20 @@ scraper.headers.update({
 
 TG_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-# ========== COOKIE LOADER ==========
+# ========== COOKIE LOADING ==========
 def load_cookies_from_env():
-    """
-    If Railway env vars PSA_COOKIE_NAME and PSA_COOKIE_VALUE exist,
-    use them directly for premium login.
-    """
+    """Read cookie name/value from Railway environment."""
     cookie_name = os.getenv("PSA_COOKIE_NAME")
     cookie_value = os.getenv("PSA_COOKIE_VALUE")
     if cookie_name and cookie_value:
-        print("[+] Using cookie from environment variables.")
+        print(f"✅ Loaded cookie from environment: {cookie_name}")
         return {cookie_name: cookie_value}
-    return {}
+    else:
+        print("⚠️ PSA_COOKIE_NAME or PSA_COOKIE_VALUE not set in environment.")
+        return {}
 
 def load_cookies_from_file(path):
+    """Load Netscape format cookies.txt file."""
     cookies = {}
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -62,21 +63,26 @@ def load_cookies_from_file(path):
                 if len(parts) >= 7:
                     name, value = parts[5], parts[6]
                     cookies[name] = value
+        print(f"✅ Loaded {len(cookies)} cookies from file.")
     except FileNotFoundError:
-        print(f"[!] Cookie file not found: {path}")
+        print(f"⚠️ Cookie file not found: {path}")
     except Exception as e:
-        print("Error reading cookie file:", e)
+        print("❌ Error reading cookie file:", e)
     return cookies
 
-cookie_map = load_cookies_from_env() or load_cookies_from_file(COOKIE_FILE)
+# Load cookies (env preferred)
+cookie_map = load_cookies_from_env()
+if not cookie_map:
+    cookie_map = load_cookies_from_file(COOKIE_FILE)
+
 if cookie_map:
     cookie_header = "; ".join(f"{k}={v}" for k, v in cookie_map.items())
     scraper.headers.update({"Cookie": cookie_header})
-    print(f"[+] Loaded {len(cookie_map)} cookie(s).")
+    print(f"🍪 Cookie session active with {len(cookie_map)} key(s).")
 else:
-    print("[!] No cookies found. Premium-only links may fail.")
+    print("❌ No cookies found. Premium-only links will likely fail.")
 
-# ========== UTILS ==========
+# ========== UTILITIES ==========
 def load_seen():
     try:
         with open(SEEN_FILE, "r", encoding="utf-8") as f:
@@ -89,7 +95,7 @@ def save_seen(seen):
         with open(SEEN_FILE, "w", encoding="utf-8") as f:
             json.dump(seen, f, indent=2, ensure_ascii=False)
     except Exception as e:
-        print("Could not save seen:", e)
+        print("Could not save seen list:", e)
 
 def send_telegram(text):
     try:
@@ -154,6 +160,9 @@ def follow_and_extract_hosts(link_url):
             final += re.findall(r'https?://gofile\.io/[A-Za-z0-9_\-]+', text)
             final += re.findall(r'https?://mega\.nz/[A-Za-z0-9_\-./#?=]+', text)
         return list(dict.fromkeys(final))
+    except requests.exceptions.HTTPError as e:
+        print(f"follow_and_extract_hosts error: {e}")
+        return []
     except Exception as e:
         print("follow_and_extract_hosts error:", e)
         return []
@@ -183,10 +192,10 @@ def extract_final_links_for_post(post_url, is_tv, episode_code, quality):
         print("extract_final_links_for_post error:", e)
         return []
 
-# ========== TELEGRAM FORMAT ==========
+# ========== TELEGRAM MESSAGE ==========
 def format_message(title, final_links):
     links_text = "\n".join(final_links) if final_links else "(No gofile/mega links found)"
-    return f"🦂 {title}\n\n🔗 DDLs:\n{links_text}"
+    return f"🦂 <b>{title}</b>\n\n🔗 DDLs:\n{links_text}"
 
 # ========== MAIN LOOP ==========
 def main():
@@ -197,11 +206,11 @@ def main():
         posts = extract_homepage_posts(r.text)
         for p in posts:
             seen[p["url"]] = p["title"]
-        print(f"[+] Initialized with {len(seen)} existing posts.")
+        print(f"✅ Initialized with {len(seen)} existing posts.")
     except Exception as e:
         print("Initial load failed:", e)
 
-    send_telegram("🦂 PSA Premium Monitor v3.1 started")
+    send_telegram("🦂 PSA Premium Monitor v3.2 started")
 
     while True:
         try:
@@ -213,9 +222,8 @@ def main():
                 title = p["title"]
                 url = p["url"]
                 update_txt = p.get("update", "")
-                if url in seen:
-                    if seen[url] == title:
-                        continue
+                if url in seen and seen[url] == title:
+                    continue
 
                 is_tv, episode_code, quality = parse_update_line(update_txt or title)
                 final_links = extract_final_links_for_post(url, is_tv, episode_code, quality)
@@ -231,6 +239,6 @@ def main():
 
         time.sleep(SLEEP_SEC)
 
-# ✅ Safe entry point
+# ========== SAFE ENTRY POINT ==========
 if __name__ == "__main__":
     main()
