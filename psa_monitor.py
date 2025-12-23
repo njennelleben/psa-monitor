@@ -6,7 +6,7 @@ import cloudscraper
 from urllib.parse import urljoin  
   
 # === CONFIG ===  
-BOT_TOKEN = "8483644919:AAHPam6XshOdY7umlhtunnLRGdgPTETvhJ4"  
+BOT_TOKEN = "8483644919:AAEDuNRDbMIo7fUiuVdafGnKCYjCNHiSwaQ"  
 CHAT_ID   = "6145988808"  
 CHECK_URL = "https://psa.wf/"  
 SLEEP_SEC = 1   # check every second  
