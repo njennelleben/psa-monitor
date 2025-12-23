@@ -1,1 +1,1 @@
-worker: python psa_monitor.py
+web: python3 app.py
